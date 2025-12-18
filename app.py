@@ -1,69 +1,58 @@
-import os
-from fastapi import FastAPI, HTTPException
+# app.py
+from fastapi import FastAPI
 from pydantic import BaseModel
+import os
 
-from retrieval.recommender import recommend
+app = FastAPI()
 
-# ----------------------------
-# FastAPI App
-# ----------------------------
-app = FastAPI(
-    title="SHL Assessment Recommendation API",
-    version="1.0.0"
-)
+# Globals (EMPTY at startup)
+model = None
+catalogue_embeddings = None
+all_assessments = None
 
-# ----------------------------
-# Request / Response Schemas
-# ----------------------------
+
+def load_resources():
+    global model, catalogue_embeddings, all_assessments
+
+    if model is None:
+        from sentence_transformers import SentenceTransformer
+        import numpy as np
+        import json
+
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        with open("data/parsed/parsed_assessments.json") as f:
+            all_assessments = json.load(f)
+
+        catalogue_embeddings = np.load(
+            "data/embeddings/catalogue_embeddings.npy"
+        )
+
+
 class RecommendRequest(BaseModel):
     query: str
+    k: int = 10
 
 
-class RecommendationItem(BaseModel):
-    assessment_url: str
-
-
-class RecommendResponse(BaseModel):
-    query: str
-    recommendations: list[RecommendationItem]
-
-
-# ----------------------------
-# Health Check Endpoint
-# ----------------------------
 @app.get("/health")
-def health_check():
-    """
-    Simple health check endpoint.
-    """
+def health():
     return {"status": "ok"}
 
 
-# ----------------------------
-# Recommendation Endpoint
-# ----------------------------
-@app.post("/recommend", response_model=RecommendResponse)
-def recommend_assessments(req: RecommendRequest):
-    """
-    Accepts a natural language query and returns
-    recommended assessment URLs.
-    """
-    query = req.query.strip()
+@app.post("/recommend")
+def recommend(req: RecommendRequest):
+    load_resources()  # 👈 LOAD ONLY WHEN CALLED
 
-    if not query:
-        raise HTTPException(status_code=400, detail="Query cannot be empty")
-
-    try:
-        urls = recommend(query, k=10)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    if not urls:
-        raise HTTPException(status_code=404, detail="No recommendations found")
+    from retrieval.recommender import recommend_assessments
+    results = recommend_assessments(
+        req.query,
+        req.k,
+        model,
+        catalogue_embeddings,
+        all_assessments
+    )
 
     return {
-        "query": query,
-        "recommendations": [
-            {"assessment_url": url} for url in urls
-        ]
+        "query": req.query,
+        "recommendations": results
     }

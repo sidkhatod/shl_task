@@ -8,7 +8,7 @@ from sentence_transformers import SentenceTransformer
 model = SentenceTransformer("all-MiniLM-L6-v2")
 catalogue_embeddings, all_assessments = load_catalogue()
 
-def recommend(query: str, k: int = 10) -> list[str]:
+def recommend(query, k, model, embeddings, assessments) -> list[str]:
     q_emb = model.encode(
         [normalize_text(query)],
         normalize_embeddings=True
